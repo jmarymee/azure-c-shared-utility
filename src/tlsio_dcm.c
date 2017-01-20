@@ -69,7 +69,7 @@ typedef struct TLS_IO_INSTANCE_TAG
 } TLS_IO_INSTANCE;
 
 /*this function will clone an option given by name and value*/
-static void* tlsio_schannel_CloneOption(const char* name, const void* value)
+static void* tlsio_dcm_CloneOption(const char* name, const void* value)
 {
     void* result;
     if (
@@ -115,7 +115,7 @@ static void* tlsio_schannel_CloneOption(const char* name, const void* value)
 }
 
 /*this function destroys an option previously created*/
-static void tlsio_schannel_DestroyOption(const char* name, const void* value)
+static void tlsio_dcm_DestroyOption(const char* name, const void* value)
 {
     /*since all options for this layer are actually string copies., disposing of one is just calling free*/
     if (
@@ -140,7 +140,7 @@ static void tlsio_schannel_DestroyOption(const char* name, const void* value)
     }
 }
 
-static OPTIONHANDLER_HANDLE tlsio_schannel_retrieveoptions(CONCRETE_IO_HANDLE handle)
+static OPTIONHANDLER_HANDLE tlsio_dcm_retrieveoptions(CONCRETE_IO_HANDLE handle)
 {
     OPTIONHANDLER_HANDLE result;
     if (handle == NULL)
@@ -150,7 +150,7 @@ static OPTIONHANDLER_HANDLE tlsio_schannel_retrieveoptions(CONCRETE_IO_HANDLE ha
     }
     else
     {
-        result = OptionHandler_Create(tlsio_schannel_CloneOption, tlsio_schannel_DestroyOption, tlsio_schannel_setoption);
+        result = OptionHandler_Create(tlsio_dcm_CloneOption, tlsio_dcm_DestroyOption, tlsio_dcm_setoption);
         if (result == NULL)
         {
             LogError("unable to OptionHandler_Create");
@@ -188,16 +188,16 @@ static OPTIONHANDLER_HANDLE tlsio_schannel_retrieveoptions(CONCRETE_IO_HANDLE ha
     return result;
 }
 
-static const IO_INTERFACE_DESCRIPTION tlsio_schannel_interface_description =
+static const IO_INTERFACE_DESCRIPTION tlsio_dcm_interface_description =
 {
-    tlsio_schannel_retrieveoptions,
-    tlsio_schannel_create,
-    tlsio_schannel_destroy,
-    tlsio_schannel_open,
-    tlsio_schannel_close,
-    tlsio_schannel_send,
-    tlsio_schannel_dowork,
-    tlsio_schannel_setoption
+    tlsio_dcm_retrieveoptions,
+    tlsio_dcm_create,
+    tlsio_dcm_destroy,
+    tlsio_dcm_open,
+    tlsio_dcm_close,
+    tlsio_dcm_send,
+    tlsio_dcm_dowork,
+    tlsio_dcm_setoption
 };
 
 static void indicate_error(TLS_IO_INSTANCE* tls_io_instance)
@@ -701,7 +701,7 @@ static void on_underlying_io_error(void* context)
     }
 }
 
-CONCRETE_IO_HANDLE tlsio_schannel_create(void* io_create_parameters)
+CONCRETE_IO_HANDLE tlsio_dcm_create(void* io_create_parameters)
 {
 	TLSIO_CONFIG* tls_io_config = (TLSIO_CONFIG *) io_create_parameters;
     TLS_IO_INSTANCE* result;
@@ -781,7 +781,7 @@ CONCRETE_IO_HANDLE tlsio_schannel_create(void* io_create_parameters)
     return result;
 }
 
-void tlsio_schannel_destroy(CONCRETE_IO_HANDLE tls_io)
+void tlsio_dcm_destroy(CONCRETE_IO_HANDLE tls_io)
 {
     if (tls_io != NULL)
     {
@@ -808,7 +808,7 @@ void tlsio_schannel_destroy(CONCRETE_IO_HANDLE tls_io)
     }
 }
 
-int tlsio_schannel_open(CONCRETE_IO_HANDLE tls_io, ON_IO_OPEN_COMPLETE on_io_open_complete, void* on_io_open_complete_context, ON_BYTES_RECEIVED on_bytes_received, void* on_bytes_received_context, ON_IO_ERROR on_io_error, void* on_io_error_context)
+int tlsio_dcm_open(CONCRETE_IO_HANDLE tls_io, ON_IO_OPEN_COMPLETE on_io_open_complete, void* on_io_open_complete_context, ON_BYTES_RECEIVED on_bytes_received, void* on_bytes_received_context, ON_IO_ERROR on_io_error, void* on_io_error_context)
 {
     int result;
 
@@ -852,7 +852,7 @@ int tlsio_schannel_open(CONCRETE_IO_HANDLE tls_io, ON_IO_OPEN_COMPLETE on_io_ope
     return result;
 }
 
-int tlsio_schannel_close(CONCRETE_IO_HANDLE tls_io, ON_IO_CLOSE_COMPLETE on_io_close_complete, void* callback_context)
+int tlsio_dcm_close(CONCRETE_IO_HANDLE tls_io, ON_IO_CLOSE_COMPLETE on_io_close_complete, void* callback_context)
 {
     int result = 0;
 
@@ -971,7 +971,7 @@ static int send_chunk(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size
     return result;
 }
 
-int tlsio_schannel_send(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size, ON_SEND_COMPLETE on_send_complete, void* callback_context)
+int tlsio_dcm_send(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size, ON_SEND_COMPLETE on_send_complete, void* callback_context)
 {
     int result;
 
@@ -1004,7 +1004,7 @@ int tlsio_schannel_send(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t si
     return result;
 }
 
-void tlsio_schannel_dowork(CONCRETE_IO_HANDLE tls_io)
+void tlsio_dcm_dowork(CONCRETE_IO_HANDLE tls_io)
 {
     if (tls_io != NULL)
     {
@@ -1013,7 +1013,7 @@ void tlsio_schannel_dowork(CONCRETE_IO_HANDLE tls_io)
     }
 }
 
-int tlsio_schannel_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, const void* value)
+int tlsio_dcm_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, const void* value)
 {
     int result;
 
@@ -1034,7 +1034,7 @@ int tlsio_schannel_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, 
             }
             else
             {
-				tls_io_instance->x509certificate = (const char *)tlsio_schannel_CloneOption("x509certificate", value);
+				tls_io_instance->x509certificate = (const char *)tlsio_dcm_CloneOption("x509certificate", value);
                 if (tls_io_instance->x509privatekey != NULL)
                 {
                     tls_io_instance->x509_schannel_handle = x509_schannel_create(tls_io_instance->x509certificate, tls_io_instance->x509privatekey);
@@ -1064,7 +1064,7 @@ int tlsio_schannel_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, 
             }
             else
             {
-				tls_io_instance->x509privatekey = (const char *)tlsio_schannel_CloneOption("x509privatekey", value);
+				tls_io_instance->x509privatekey = (const char *)tlsio_dcm_CloneOption("x509privatekey", value);
                 if (tls_io_instance->x509certificate!= NULL)
                 {
                     tls_io_instance->x509_schannel_handle = x509_schannel_create(tls_io_instance->x509certificate, tls_io_instance->x509privatekey);
@@ -1098,7 +1098,7 @@ int tlsio_schannel_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, 
     return result;
 }
 
-const IO_INTERFACE_DESCRIPTION* tlsio_schannel_get_interface_description(void)
+const IO_INTERFACE_DESCRIPTION* tlsio_dcm_get_interface_description(void)
 {
-    return &tlsio_schannel_interface_description;
+    return &tlsio_dcm_interface_description;
 }
