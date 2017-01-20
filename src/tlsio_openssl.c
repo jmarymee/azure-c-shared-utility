@@ -775,6 +775,35 @@ static int add_certificate_to_store(TLS_IO_INSTANCE* tls_io_instance, const char
     return result;
 }
 
+#define SSL_WHERE_INFO(ssl, w, flag, msg) {                \
+    if(w & flag) {                                         \
+      printf("+ %s: ", name);                              \
+      printf("%20.20s", msg);                              \
+      printf(" - %30.30s ", SSL_state_string_long(ssl));   \
+      printf(" - %5.10s ", SSL_state_string(ssl));         \
+      printf("\n");                                        \
+    }                                                      \
+  } 
+
+/*typedef void(*info_callback)();
+
+static void krx_ssl_info_callback(const SSL* ssl, int where, int ret, const char* name) {
+
+    if (ret == 0) {
+        printf("-- krx_ssl_info_callback: error occured.\n");
+        return;
+    }
+
+    SSL_WHERE_INFO(ssl, where, SSL_CB_LOOP, "LOOP");
+    SSL_WHERE_INFO(ssl, where, SSL_CB_HANDSHAKE_START, "HANDSHAKE START");
+    SSL_WHERE_INFO(ssl, where, SSL_CB_HANDSHAKE_DONE, "HANDSHAKE DONE");
+}
+
+static void krx_ssl_client_info_callback(const SSL* ssl, int where, int ret) {
+    krx_ssl_info_callback(ssl, where, ret, "client");
+}*/
+
+
 static int create_openssl_instance(TLS_IO_INSTANCE* tlsInstance)
 {
     int result;
@@ -892,6 +921,8 @@ static int create_openssl_instance(TLS_IO_INSTANCE* tlsInstance)
                         }
                         else
                         {
+                            //SSL_set_info_callback(tlsInstance->ssl, krx_ssl_client_info_callback);
+
                             SSL_set_bio(tlsInstance->ssl, tlsInstance->in_bio, tlsInstance->out_bio);
                             SSL_set_connect_state(tlsInstance->ssl);
                             result = 0;
@@ -1049,13 +1080,13 @@ int tlsio_openssl_open(CONCRETE_IO_HANDLE tls_io, ON_IO_OPEN_COMPLETE on_io_open
 
             if (create_openssl_instance(tls_io_instance) != 0)
             {
-                tls_io_instance->tlsio_state = TLSIO_STATE_NOT_OPEN;
+                tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
                 result = __LINE__;
             }
             else if (xio_open(tls_io_instance->underlying_io, on_underlying_io_open_complete, tls_io_instance, on_underlying_io_bytes_received, tls_io_instance, on_underlying_io_error, tls_io_instance) != 0)
             {
                 result = __LINE__;
-                tls_io_instance->tlsio_state = TLSIO_STATE_NOT_OPEN;
+                tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
             }
             else
             {
@@ -1173,6 +1204,7 @@ void tlsio_openssl_dowork(CONCRETE_IO_HANDLE tls_io)
         if ((tls_io_instance->tlsio_state != TLSIO_STATE_NOT_OPEN) &&
             (tls_io_instance->tlsio_state != TLSIO_STATE_ERROR))
         {
+            write_outgoing_bytes(tls_io_instance, NULL, NULL);
             xio_dowork(tls_io_instance->underlying_io);
         }
     }
