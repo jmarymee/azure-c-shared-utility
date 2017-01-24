@@ -312,14 +312,13 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 					}
 					else
 					{
-						tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT;
-						
-						//Test/Debug
-						tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
-						if (tls_io_instance->on_io_open_complete != NULL)
-						{
-							tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
-						}
+						tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT;						
+						////Test/Debug
+						//tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
+						//if (tls_io_instance->on_io_open_complete != NULL)
+						//{
+						//	tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+						//}
 					}
 				}
 			//}
@@ -390,32 +389,52 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 		{
 			if (tls_io_instance->tlsio_state == TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT)
 			{
-				tls_io_instance->needed_bytes = 1;
-
-				//consumed_bytes = tls_io_instance->received_byte_count;
-				//tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
-				if (tls_io_instance->on_io_open_complete != NULL)
+				if (tls_io_instance->received_byte_count == 1024)
 				{
-					//tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
-				}
+					consumed_bytes = tls_io_instance->received_byte_count;
+					tls_io_instance->received_byte_count -= consumed_bytes;
+					/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
+					tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
 
+
+					if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
+					{
+						tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+						if (tls_io_instance->on_io_open_complete != NULL)
+						{
+							tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_ERROR);
+						}
+					}
+					else
+					{
+						tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
+						if (tls_io_instance->on_io_open_complete != NULL)
+						{
+							tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+						}
+					}
+				}
+				else
+				{
+					tls_io_instance->needed_bytes = 1024 - tls_io_instance->received_byte_count;
+				}
 				//tls_io_instance->received_byte_count -= consumed_bytes;
 
 				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
 				//tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
+				
 
 			}
 			else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
 			{
+				consumed_bytes = tls_io_instance->received_byte_count;
 				if (tls_io_instance->on_bytes_received != NULL)
 				{
-					tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
+					//tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
+					tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, tls_io_instance->received_bytes, tls_io_instance->received_byte_count);
 				}
-				consumed_bytes = tls_io_instance->received_byte_count;
-				tls_io_instance->received_byte_count -= consumed_bytes;
 
-				//DEBUG:
-				printf("In In TLSIO_STATE_OPEN: %s\n", buffer);
+				tls_io_instance->received_byte_count -= consumed_bytes;
 
 				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
 				tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
@@ -425,8 +444,25 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 					tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
 					indicate_error(tls_io_instance);
 				}
-
 			}
+			//else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
+			//{
+			//	if (tls_io_instance->on_bytes_received != NULL)
+			//	{
+			//		tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
+			//	}
+			//	consumed_bytes = tls_io_instance->received_byte_count;
+			//	tls_io_instance->received_byte_count -= consumed_bytes;
+
+			//	/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
+			//	tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
+
+			//	if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
+			//	{
+			//		tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+			//		indicate_error(tls_io_instance);
+			//	}
+			//}
 		}
 	}
 }
