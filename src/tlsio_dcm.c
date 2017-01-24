@@ -43,6 +43,13 @@ typedef enum TLSIO_STATE_TAG
 	TLSIO_STATE_ERROR
 } TLSIO_STATE;
 
+//Used for faux DCM Init
+typedef struct DCM_INFO
+{
+	TLSIO_STATE tlsio_dcm_state;
+	const char* initData;
+} DCM_INSTANCE;
+
 typedef struct TLS_IO_INSTANCE_TAG
 {
 	XIO_HANDLE socket_io;
@@ -67,6 +74,9 @@ typedef struct TLS_IO_INSTANCE_TAG
 	const char* x509privatekey;
 	X509_SCHANNEL_HANDLE x509_schannel_handle;
 } TLS_IO_INSTANCE;
+
+//debug
+static int count = 0;
 
 /*this function will clone an option given by name and value*/
 static void* tlsio_dcm_CloneOption(const char* name, const void* value)
@@ -262,10 +272,9 @@ static void on_underlying_io_close_complete(void* context)
 static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open_result)
 {
 	TLS_IO_INSTANCE* tls_io_instance = (TLS_IO_INSTANCE*)context;
+	DCM_INSTANCE dcm_info;
+	dcm_info.initData = "THE_COWS_ARE_COMING!"; //Test Init data
 
-	if (io_open_result == IO_OPEN_OK)
-	{
-	}
 
 	if (tls_io_instance->tlsio_state != TLSIO_STATE_OPENING_UNDERLYING_IO)
 	{
@@ -274,15 +283,69 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 	}
 	else
 	{
-		//tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT; //This is a handoff to send a packet to the server to complete the seurity init handshake
-		// Since we aren't doing that yet, we will just say that everything is open and OK
-		tls_io_instance->needed_bytes = 1;
-		tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
-		if (tls_io_instance->on_io_open_complete != NULL)
+		if (io_open_result != IO_OPEN_OK)
 		{
-			tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+			tls_io_instance->tlsio_state = TLSIO_STATE_NOT_OPEN;
+			if (tls_io_instance->on_io_open_complete != NULL)
+			{
+				tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_ERROR);
+			}
+		}
+		else
+		{
+			//SECURITY_STATUS status = SEC_I_COMPLETE_NEEDED;
+			//if ((status == SEC_I_COMPLETE_NEEDED) || (status == SEC_I_CONTINUE_NEEDED) || (status == SEC_I_COMPLETE_AND_CONTINUE))
+			//{
+				if (xio_send(tls_io_instance->socket_io, dcm_info.initData, strlen(dcm_info.initData + 1), NULL, NULL) != 0)
+				{
+					tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+					indicate_error(tls_io_instance);
+				}
+				else
+				{
+					/* set the needed bytes to 1, to get on the next byte how many we actually need */
+					tls_io_instance->needed_bytes = 1;
+					if (resize_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
+					{
+						tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+						indicate_error(tls_io_instance);
+					}
+					else
+					{
+						tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT;
+						
+						//Test/Debug
+						tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
+						if (tls_io_instance->on_io_open_complete != NULL)
+						{
+							tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+						}
+					}
+				}
+			//}
 		}
 	}
+
+	//if (io_open_result == IO_OPEN_OK)
+	//{
+	//}
+
+	//if (tls_io_instance->tlsio_state != TLSIO_STATE_OPENING_UNDERLYING_IO)
+	//{
+	//	tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+	//	indicate_error(tls_io_instance);
+	//}
+	//else
+	//{
+	//	//tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT; //This is a handoff to send a packet to the server to complete the seurity init handshake
+	//	// Since we aren't doing that yet, we will just say that everything is open and OK
+	//	tls_io_instance->needed_bytes = 1;
+	//	tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
+	//	if (tls_io_instance->on_io_open_complete != NULL)
+	//	{
+	//		tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+	//	}
+	//}
 }
 
 static int set_receive_buffer(TLS_IO_INSTANCE* tls_io_instance, size_t buffer_size)
@@ -327,13 +390,20 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 		{
 			if (tls_io_instance->tlsio_state == TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT)
 			{
-				consumed_bytes = tls_io_instance->received_byte_count;
-				tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
+				tls_io_instance->needed_bytes = 1;
+
+				//consumed_bytes = tls_io_instance->received_byte_count;
+				//tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
 				if (tls_io_instance->on_io_open_complete != NULL)
 				{
-					tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
+					//tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
 				}
-				tls_io_instance->needed_bytes = 1;
+
+				//tls_io_instance->received_byte_count -= consumed_bytes;
+
+				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
+				//tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
+
 			}
 			else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
 			{
@@ -341,7 +411,21 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 				{
 					tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
 				}
-				tls_io_instance->needed_bytes = 1;
+				consumed_bytes = tls_io_instance->received_byte_count;
+				tls_io_instance->received_byte_count -= consumed_bytes;
+
+				//DEBUG:
+				printf("In In TLSIO_STATE_OPEN: %s\n", buffer);
+
+				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
+				tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
+
+				if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
+				{
+					tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+					indicate_error(tls_io_instance);
+				}
+
 			}
 		}
 	}
