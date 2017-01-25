@@ -273,7 +273,7 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 {
 	TLS_IO_INSTANCE* tls_io_instance = (TLS_IO_INSTANCE*)context;
 	DCM_INSTANCE dcm_info;
-	dcm_info.initData = "THE_COWS_ARE_COMING!"; //Test Init data
+	dcm_info.initData = "SEED"; //Test Init data
 
 
 	if (tls_io_instance->tlsio_state != TLSIO_STATE_OPENING_UNDERLYING_IO)
@@ -293,35 +293,25 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 		}
 		else
 		{
-			//SECURITY_STATUS status = SEC_I_COMPLETE_NEEDED;
-			//if ((status == SEC_I_COMPLETE_NEEDED) || (status == SEC_I_CONTINUE_NEEDED) || (status == SEC_I_COMPLETE_AND_CONTINUE))
-			//{
-				if (xio_send(tls_io_instance->socket_io, dcm_info.initData, strlen(dcm_info.initData + 1), NULL, NULL) != 0)
+			if (xio_send(tls_io_instance->socket_io, dcm_info.initData, (strlen(dcm_info.initData) + 1), NULL, NULL) != 0)
+			{
+				tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
+				indicate_error(tls_io_instance);
+			}
+			else
+			{
+				/* set the needed bytes to 1, to get on the next byte how many we actually need */
+				tls_io_instance->needed_bytes = 1;
+				if (resize_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
 				{
 					tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
 					indicate_error(tls_io_instance);
 				}
 				else
 				{
-					/* set the needed bytes to 1, to get on the next byte how many we actually need */
-					tls_io_instance->needed_bytes = 1;
-					if (resize_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
-					{
-						tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
-						indicate_error(tls_io_instance);
-					}
-					else
-					{
-						tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT;						
-						////Test/Debug
-						//tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
-						//if (tls_io_instance->on_io_open_complete != NULL)
-						//{
-						//	tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
-						//}
-					}
+					tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT;
 				}
-			//}
+			}
 		}
 	}
 
@@ -391,12 +381,18 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 			{
 				if (tls_io_instance->received_byte_count == 1024)
 				{
+					//size_t loop = 0;
+					//for (loop = 0; loop < tls_io_instance->received_byte_count; loop++)
+					//{
+					//	printf("%d : %x |",loop, tls_io_instance->received_bytes[loop]);
+					//}
 					consumed_bytes = tls_io_instance->received_byte_count;
 					tls_io_instance->received_byte_count -= consumed_bytes;
 					/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
 					tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
 
 
+					//Resize the receive buffer for the next set of inbound network data unrelated to this handshake
 					if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
 					{
 						tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
@@ -407,6 +403,7 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 					}
 					else
 					{
+						//Handshake done; now time for MQTT connect and ACK IF we we are using MQTT. This layer shouldn't care....
 						tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
 						if (tls_io_instance->on_io_open_complete != NULL)
 						{
@@ -422,7 +419,7 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 
 				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
 				//tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
-				
+
 
 			}
 			else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
@@ -749,27 +746,27 @@ static int send_chunk(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size
 				//	security_buffers_desc.ulVersion = SECBUFFER_VERSION;
 
 				//	status = EncryptMessage(&tls_io_instance->security_context, 0, &security_buffers_desc, 0);
-					if (FAILED(status))
+				if (FAILED(status))
+				{
+					result = __LINE__;
+				}
+				else
+				{
+					//if (xio_send(tls_io_instance->socket_io, out_buffer, security_buffers[0].cbBuffer + security_buffers[1].cbBuffer + security_buffers[2].cbBuffer, on_send_complete, callback_context) != 0)
+					if (xio_send(tls_io_instance->socket_io, buffer, size, on_send_complete, callback_context) != 0)
 					{
 						result = __LINE__;
 					}
 					else
 					{
-						//if (xio_send(tls_io_instance->socket_io, out_buffer, security_buffers[0].cbBuffer + security_buffers[1].cbBuffer + security_buffers[2].cbBuffer, on_send_complete, callback_context) != 0)
-						if (xio_send(tls_io_instance->socket_io, buffer, size, on_send_complete, callback_context) != 0)
-						{
-							result = __LINE__;
-						}
-						else
-						{
-							result = 0;
-						}
+						result = 0;
 					}
-
-					//free(out_buffer);
 				}
+
+				//free(out_buffer);
 			}
 		}
+	}
 
 	return result;
 }
