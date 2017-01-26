@@ -1,6 +1,13 @@
 // Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+//TODO: This define can be used to test the protocol using a wire sniffer. If set then the handshake code will send a 'DCM_ENCRYPT' to the APG DCMProvisionHandler. 
+// If the APG code sees that it sets a static boolean that executes a two's complement 'encryption' for sends and receives. The only exception is the server->client part of
+// the handshake. During handshake, the client sends either DCM_ENCRYPT or NO_ENCRYPT and the server responds with a 'key' that is 1024 bytes long and is used for NOTHING. 
+// It's only there to show how one might implement a handshake to establish a mutual encryption key. SSL uses DIffie-Helman, DCM uses a table seed. Handshake is ALWAYS unencrypted in this code
+// Simply comment out the #define DCM_ENCRYPT to tell the clients (which tells the server) that you do not want 'encryption'. 
+#define DCM_ENCRYPT
+
 #define SECURITY_WIN32
 #ifdef WINCE
 #define UNICODE // Only Unicode version of secur32.lib functions supported on Windows CE
@@ -22,7 +29,10 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdbool.h>
+//TODO: The include below (tlsio.h) is the original one used for tlsio_schannel. It's so minimal there is no reason to dupe, but feel free if you want!
 #include "azure_c_shared_utility/tlsio.h"
+//TODO: This is the header for this new c file (tlsio_dcm.c). It adds two new methods in the code that execute encrypt and decrypt functions. This should be replaced by real crypto
+// Even though 2's complement works both ways (you could have ONE function for this) I made it as two since they can be two separate functions for real crypto
 #include "azure_c_shared_utility/tlsio_dcm.h"
 #include "azure_c_shared_utility/socketio.h"
 #include "windows.h"
@@ -75,8 +85,6 @@ typedef struct TLS_IO_INSTANCE_TAG
 	X509_SCHANNEL_HANDLE x509_schannel_handle;
 } TLS_IO_INSTANCE;
 
-//debug
-static int count = 0;
 
 /*this function will clone an option given by name and value*/
 static void* tlsio_dcm_CloneOption(const char* name, const void* value)
@@ -256,7 +264,7 @@ static void on_underlying_io_close_complete(void* context)
 		}
 
 		/* Free security context resources corresponding to creation with open */
-		//DeleteSecurityContext(&tls_io_instance->security_context); //HACK: Removed since we don't have a security context yet (This was for SSL Version)
+		//DeleteSecurityContext(&tls_io_instance->security_context); //TODO: Removed since we don't have a security context (This was for SSL Version)
 
 		if (tls_io_instance->credential_handle_allocated)
 		{
@@ -269,11 +277,17 @@ static void on_underlying_io_close_complete(void* context)
 
 
 //TODO: Security init should start here. In TLS/SSL this is where the client sends the TLS Hello and then the server respondsd with a server Cert plus auth type list
+// In our exmaple case we decided if crypto is desired or not during handshake. The handshake starts here and ends with 'on_underlying_io_bytes_received'
+// When this method is called, it merely means he SYN/SYN/ACK for TCP/IP has been established. 
 static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open_result)
 {
 	TLS_IO_INSTANCE* tls_io_instance = (TLS_IO_INSTANCE*)context;
 	DCM_INSTANCE dcm_info;
-	dcm_info.initData = "SEED"; //Test Init data
+#ifdef DCM_ENCRYPT
+	dcm_info.initData = "ENCRYPT"; //Client->Server initial handshake. In SSL this would be a client HELLO
+#else
+	dcm_info.initData = "NO_ENCRYPT"; //Client->Server initial handshake. In SSL this would be a client HELLO
+#endif
 
 
 	if (tls_io_instance->tlsio_state != TLSIO_STATE_OPENING_UNDERLYING_IO)
@@ -293,6 +307,8 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 		}
 		else
 		{
+			// This is where the handshake data is sent via an abstracted socket IO function pointer. Doing ti this way
+			// Means that we can run this cross-platform (not just winsock)
 			if (xio_send(tls_io_instance->socket_io, dcm_info.initData, (strlen(dcm_info.initData) + 1), NULL, NULL) != 0)
 			{
 				tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
@@ -300,7 +316,8 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 			}
 			else
 			{
-				/* set the needed bytes to 1, to get on the next byte how many we actually need */
+				//This is a funky way that this code deals with non-blocking socket IO. The 'needed_bytes' value is a sort of flag that makes 'on_underlying_io_bytes_received'
+				// look for incoming data from the receive socket. Best drawn on a white board or you can step through code if you so dare! 
 				tls_io_instance->needed_bytes = 1;
 				if (resize_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
 				{
@@ -314,27 +331,6 @@ static void on_underlying_io_open_complete(void* context, IO_OPEN_RESULT io_open
 			}
 		}
 	}
-
-	//if (io_open_result == IO_OPEN_OK)
-	//{
-	//}
-
-	//if (tls_io_instance->tlsio_state != TLSIO_STATE_OPENING_UNDERLYING_IO)
-	//{
-	//	tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
-	//	indicate_error(tls_io_instance);
-	//}
-	//else
-	//{
-	//	//tls_io_instance->tlsio_state = TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT; //This is a handoff to send a packet to the server to complete the seurity init handshake
-	//	// Since we aren't doing that yet, we will just say that everything is open and OK
-	//	tls_io_instance->needed_bytes = 1;
-	//	tls_io_instance->tlsio_state = TLSIO_STATE_OPEN;
-	//	if (tls_io_instance->on_io_open_complete != NULL)
-	//	{
-	//		tls_io_instance->on_io_open_complete(tls_io_instance->on_io_open_complete_context, IO_OPEN_OK);
-	//	}
-	//}
 }
 
 static int set_receive_buffer(TLS_IO_INSTANCE* tls_io_instance, size_t buffer_size)
@@ -360,6 +356,7 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 {
 	TLS_IO_INSTANCE* tls_io_instance = (TLS_IO_INSTANCE*)context;
 	size_t consumed_bytes;
+	unsigned char * cbuffer;
 
 	if (resize_receive_buffer(tls_io_instance, tls_io_instance->received_byte_count + size) == 0)
 	{
@@ -374,18 +371,14 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 		{
 			tls_io_instance->needed_bytes -= size;
 		}
-		/* Drain what we received */
+		//TODO: The above code will iterate and add received bytes (and the total count) from the underlying socket IO. We assume that we get everything in one receive
+		// But if there are split frames larger than a max TCPIP packet you *may* have to track that you have bytes but not enough. Ethernet is 1500 so if ethernet then that's the limit
 		while (tls_io_instance->needed_bytes == 0)
 		{
 			if (tls_io_instance->tlsio_state == TLSIO_STATE_HANDSHAKE_CLIENT_HELLO_SENT)
 			{
 				if (tls_io_instance->received_byte_count == 1024)
 				{
-					//size_t loop = 0;
-					//for (loop = 0; loop < tls_io_instance->received_byte_count; loop++)
-					//{
-					//	printf("%d : %x |",loop, tls_io_instance->received_bytes[loop]);
-					//}
 					consumed_bytes = tls_io_instance->received_byte_count;
 					tls_io_instance->received_byte_count -= consumed_bytes;
 					/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
@@ -393,6 +386,7 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 
 
 					//Resize the receive buffer for the next set of inbound network data unrelated to this handshake
+					// We are resetting back to 1 byte. I think that means we won't memory leak here
 					if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
 					{
 						tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
@@ -415,20 +409,26 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 				{
 					tls_io_instance->needed_bytes = 1024 - tls_io_instance->received_byte_count;
 				}
-				//tls_io_instance->received_byte_count -= consumed_bytes;
-
-				/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
-				//tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
-
-
 			}
 			else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
 			{
 				consumed_bytes = tls_io_instance->received_byte_count;
 				if (tls_io_instance->on_bytes_received != NULL)
 				{
-					//tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
-					tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, tls_io_instance->received_bytes, tls_io_instance->received_byte_count);
+					int ccode = -1; //Long form to see if we got an error when decoding
+					//Note that we modify the one and only copy of the data. If we corrupt then we are in trouble.
+					// Perhaps a better way would be a calloc / memcopy / decrypt / discard (for security reasons). Future enhancement
+					cbuffer = tls_io_instance->received_bytes;  
+					size_t len = tls_io_instance->received_byte_count;
+					ccode = DecodeBuffer(cbuffer, len);
+					//ccode = 0;
+					if (ccode == 0)
+					{
+						//This is part of the flexible yet convoluted abstracted interfaces. We call this fnPtr (on_bytes_received) which maps to the MQTT client
+						// Were this AMQP it would map there instead. HTTP/REST - same. In this case it tells the higher layer that we can now communicate 'securely' 
+						// and it can now begin it's client-connect procedures
+						tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, cbuffer, tls_io_instance->received_byte_count);
+					}
 				}
 
 				tls_io_instance->received_byte_count -= consumed_bytes;
@@ -442,24 +442,6 @@ static void on_underlying_io_bytes_received(void* context, const unsigned char* 
 					indicate_error(tls_io_instance);
 				}
 			}
-			//else if (tls_io_instance->tlsio_state == TLSIO_STATE_OPEN)
-			//{
-			//	if (tls_io_instance->on_bytes_received != NULL)
-			//	{
-			//		tls_io_instance->on_bytes_received(tls_io_instance->on_bytes_received_context, (const unsigned char *)buffer, size);
-			//	}
-			//	consumed_bytes = tls_io_instance->received_byte_count;
-			//	tls_io_instance->received_byte_count -= consumed_bytes;
-
-			//	/* if nothing more to consume, set the needed bytes to 1, to get on the next byte how many we actually need */
-			//	tls_io_instance->needed_bytes = tls_io_instance->received_byte_count == 0 ? 1 : 0;
-
-			//	if (set_receive_buffer(tls_io_instance, tls_io_instance->needed_bytes + tls_io_instance->received_byte_count) != 0)
-			//	{
-			//		tls_io_instance->tlsio_state = TLSIO_STATE_ERROR;
-			//		indicate_error(tls_io_instance);
-			//	}
-			//}
 		}
 	}
 }
@@ -687,9 +669,13 @@ int tlsio_dcm_close(CONCRETE_IO_HANDLE tls_io, ON_IO_CLOSE_COMPLETE on_io_close_
 	return result;
 }
 
+// TODO: This is where one would implement the crypto for the outbound send. Note that this simple example 'encrypts' the buffer (if encryption is on) and then sends via
+// the abstracted Socket IO interface
 static int send_chunk(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size, ON_SEND_COMPLETE on_send_complete, void* callback_context)
 {
-	int result;
+	int result = -1; //Default to error
+	unsigned char* encryptBuffer = NULL; //This is a recast ptr to the data buffer pre-encryption. Convenience mostly
+	int ccode = -1; //default to error
 
 	if ((tls_io == NULL) ||
 		(buffer == NULL) ||
@@ -707,63 +693,20 @@ static int send_chunk(CONCRETE_IO_HANDLE tls_io, const void* buffer, size_t size
 		}
 		else
 		{
-			//SecPkgContext_StreamSizes  sizes;
-			//SECURITY_STATUS status = QueryContextAttributes(&tls_io_instance->security_context, SECPKG_ATTR_STREAM_SIZES, &sizes);
-			SECURITY_STATUS status = SEC_E_OK;
-			if (status != SEC_E_OK)
+			//TODO: Here is the simple 2's complement encryption
+			encryptBuffer = (unsigned char *)buffer;
+			ccode = EncodeBuffer(encryptBuffer, size);
+			//ccode = 0;
+			if (ccode == 0)
 			{
-				result = __LINE__;
-			}
-			else
-			{
-				//SecBuffer security_buffers[4];
-				//SecBufferDesc security_buffers_desc;
-				//size_t needed_buffer = sizes.cbHeader + size + sizes.cbTrailer;
-				//unsigned char* out_buffer = (unsigned char*)malloc(needed_buffer);
-				//if (out_buffer == NULL)
-				//{
-				//	result = __LINE__;
-				//}
-				//else
-				//{
-				//	memcpy(out_buffer + sizes.cbHeader, buffer, size);
-
-				//	security_buffers[0].BufferType = SECBUFFER_STREAM_HEADER;
-				//	security_buffers[0].cbBuffer = sizes.cbHeader;
-				//	security_buffers[0].pvBuffer = out_buffer;
-				//	security_buffers[1].BufferType = SECBUFFER_DATA;
-				//	security_buffers[1].cbBuffer = (unsigned long)size;
-				//	security_buffers[1].pvBuffer = out_buffer + sizes.cbHeader;
-				//	security_buffers[2].BufferType = SECBUFFER_STREAM_TRAILER;
-				//	security_buffers[2].cbBuffer = sizes.cbTrailer;
-				//	security_buffers[2].pvBuffer = out_buffer + sizes.cbHeader + size;
-				//	security_buffers[3].cbBuffer = 0;
-				//	security_buffers[3].BufferType = SECBUFFER_EMPTY;
-				//	security_buffers[3].pvBuffer = 0;
-
-				//	security_buffers_desc.cBuffers = sizeof(security_buffers) / sizeof(security_buffers[0]);
-				//	security_buffers_desc.pBuffers = security_buffers;
-				//	security_buffers_desc.ulVersion = SECBUFFER_VERSION;
-
-				//	status = EncryptMessage(&tls_io_instance->security_context, 0, &security_buffers_desc, 0);
-				if (FAILED(status))
+				if (xio_send(tls_io_instance->socket_io, buffer, size, on_send_complete, callback_context) != 0)
 				{
 					result = __LINE__;
 				}
 				else
 				{
-					//if (xio_send(tls_io_instance->socket_io, out_buffer, security_buffers[0].cbBuffer + security_buffers[1].cbBuffer + security_buffers[2].cbBuffer, on_send_complete, callback_context) != 0)
-					if (xio_send(tls_io_instance->socket_io, buffer, size, on_send_complete, callback_context) != 0)
-					{
-						result = __LINE__;
-					}
-					else
-					{
-						result = 0;
-					}
+					result = 0;
 				}
-
-				//free(out_buffer);
 			}
 		}
 	}
@@ -896,6 +839,34 @@ int tlsio_dcm_setoption(CONCRETE_IO_HANDLE tls_io, const char* optionName, const
 	}
 
 	return result;
+}
+
+// TODO: Used as a sample to decrypt a 2's complement demo encryption. Note that Encode and Decode are identical for 2C :)
+int DecodeBuffer(unsigned char* buffer, size_t len)
+{
+	if (len > 0) {}
+	if (buffer != NULL) {}
+#ifdef DCM_ENCRYPT
+	unsigned char *pBuf = (unsigned char *)buffer;
+	for (size_t i = 0;i<len;i++) { //Here is where we will do the decoding
+		*(pBuf + i) ^= 1;
+	}
+#endif
+	return 0;
+}
+
+// TODO: Used as a sample to decrypt a 2's complement demo encryption. Note that Encode and Decode are identical for 2C :)
+int EncodeBuffer(unsigned char* buffer, size_t len)
+{
+	if (len > 0) {}
+	if (buffer != NULL) {}
+#ifdef DCM_ENCRYPT
+	unsigned char *pBuf = (unsigned char *)buffer;
+	for (size_t i = 0; i<len; i++) { //Here is where we will do the encoding
+		*(pBuf + i) ^= 1;
+	}
+#endif
+	return 0;
 }
 
 const IO_INTERFACE_DESCRIPTION* tlsio_dcm_get_interface_description(void)

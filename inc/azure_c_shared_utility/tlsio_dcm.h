@@ -24,6 +24,9 @@ MOCKABLE_FUNCTION(, int, tlsio_dcm_setoption, CONCRETE_IO_HANDLE, tls_io, const 
 
 MOCKABLE_FUNCTION(, const IO_INTERFACE_DESCRIPTION*, tlsio_dcm_get_interface_description);
 
+int DecodeBuffer(unsigned char* buffer, size_t len);
+int EncodeBuffer(unsigned char* buffer, size_t len);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
